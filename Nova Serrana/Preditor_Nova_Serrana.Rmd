@@ -1,0 +1,193 @@
+---
+title: "Preditor - Nova Serrana"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(shiny)
+library(DT)
+library(tibble)
+library(dplyr)
+```
+
+Column {data-width=450}
+-----------------------------------------------------------------------
+
+### Terreno
+
+```{r}
+radioButtons("FSQ", "Situação na Quadra", selected = 0,
+             choices = c("Meio de Quadra" = 1, 
+                         "Meio de Quadra (+1 frente)" = 1.03,
+                         "Esquina" = 1.09,
+                         "Encravado" = .90,
+                         "Aglomerado" = .8),
+             inline = TRUE
+             )
+radioButtons("FTOP", "Topografia", selected = 0,
+             choices = c("Plano" = 1, 
+                         "Aclive" = .95,
+                         "Declive" = .90,
+                         "Irregular" = .90),
+             inline = TRUE
+             )
+radioButtons("FPD", "Pedologia", selected = 0,
+             choices = c("Inundável" = .90,
+                         "Firme" = 1,
+                         "Alagado" = .85),
+             inline = TRUE
+             )
+radioButtons("FPAV", "Pavimentação", selected = 0,
+             choices = c("Asfáltica" = 1,
+                         "Bloquete" = 1,
+                         "Paralelepípido" = 1,
+                         "Inexistente" = .85),
+             inline = TRUE
+             )
+checkboxInput("FMP", "Melhoramentos Públicos (Iluminação)?", value = TRUE)
+checkboxInput("FTO", "Condomínio Horizontal?", value = FALSE)
+numericInput("Testada", "Testada:", 
+             value = 12, min = 0, max = NA)
+numericInput("At", "Área (m2):", 
+             value = 360, min = 0, max = NA)
+numericInput("Fat", "Fator de ajuste:", 
+             value = 1, min = 0, max = NA)
+
+HTML("<h2>Fatores</h2>")
+```
+
+
+```{r}
+FatoresTerrenos <- reactive({
+  # Fatores Terrenos:
+  FTest <- ifelse(input$Testada <= 100, .89+.045*log(input$Testada, 1.10))
+  FAt <- ifelse(input$At <= 1800, 1.434-.076*log(input$At))
+  FSQ <- as.numeric(input$FSQ)
+  FTOP <- as.numeric(input$FTOP)
+  FPD <- as.numeric(input$FPD)
+  FPAV <- as.numeric(input$FPAV)
+  FMP <- ifelse(isTRUE(input$FMP), 1, .93)
+  FTO <- ifelse(isTRUE(input$FTO), 1.40, 1)
+  Fat <- as.numeric(input$Fat)
+  
+  FatoresTerreno <- tribble(
+    ~F1,   ~F2, ~F3,  ~F4, ~F5,  ~F6, ~F7, ~F8, ~Fat,
+    FTest, FAt, FSQ, FTOP, FPD, FPAV, FMP, FTO,  Fat
+    )
+  
+  FatoresTerreno$Fterreno <- with(FatoresTerreno, F1*F2*F3*F4*F5*F6*F7*F8*Fat)  
+  as.data.frame(FatoresTerreno)
+})
+
+DT::renderDataTable({
+  validate(
+    need(input$FSQ, "Informe a situação do imóvel!"),
+    need(input$FTOP, "Informe a topografia do imóvel!"),
+    need(input$FPD, "Informe a pedologia do imóvel!"),
+    need(input$FPAV, "Informe a pavimentação da rua do imóvel!")
+  )
+  datatable(FatoresTerrenos(),
+            options = list(pageLength = 1, searchable = FALSE)) |>
+  formatRound(c("F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "Fat",
+                "Fterreno"),
+              digits = 2, mark = ".", dec.mark = ",")
+})
+```
+
+Column {data-width=450}
+-----------------------------------------------------------------------
+
+### Benfeitoria
+
+```{r}
+checkboxInput("BENF", "Há benfeitorias?", value = FALSE)
+radioButtons("Tipologia", "Tipologia", selected = 0,
+             choices = c("Casa", "Barraco", "Apartamento", "Sala", "Loja",
+                         "Galpão", "Telheiro", "Fábrica", "Especial", "Outros",
+                         "Garagem Cond. Vertical"),
+             inline = TRUE
+             )
+radioButtons("FEC", "Elemento Construtivo", selected = 0,
+             choices = c("Sem" = .9,
+                         "Adobe/Taipa" = .6,
+                         "Alvenaria" = 1,
+                         "Madeira simples" = .80,
+                         "Madeira Luxo" = .95,
+                         "Concreto" = 1
+                         ),
+             inline = TRUE
+             )
+radioButtons("PC", "Padrão Construtivo", selected = 0,
+             choices = c("Popular", "Baixo", "Normal", "Luxo"),
+             inline = TRUE
+             )
+HTML("<h2>Fatores</h2>")
+
+DT::renderDataTable({
+    validate(
+      need(input$Tipologia, "Informe a tipologia do imóvel!"),
+      need(input$FEC, "Informe os elementos construtivos do imóvel!"),
+      need(input$FPD, "Informe o padrão construtivo do imóvel!"),
+    )
+    datatable(FatoresBenfeitorias(),
+              options = list(pageLength = 1, searchable = FALSE)) |>
+    formatRound(c("Fpc", "Fec", "Fcv", "Fconstrucoes"),
+                digits = 2, mark = ".", dec.mark = ",")
+  })
+```
+
+```{r}
+# Padrão Construtivo
+dfPC <- tribble(
+          ~Tipo,  ~Luxo, ~Normal, ~Baixo, ~Popular,
+         "Casa", 1.3596,   .8969,  .6766,    .3854,
+      "Barraco",  .4090,   .3135,  .1910,    .1840,
+  "Apartamento", 1.3596,   .8969,  .6766,    .3854,
+         "Sala", 1.3596,   .8969,  .6766,    .3854,
+         "Loja", 1.3596,   .8969,  .6766,    .3854,
+       "Galpão",  .8179,   .6270,  .4217,    .2340,
+     "Telheiro",  .7160,   .5679,  .3870,    .2017,
+      "Fábrica",  .9160,   .8179,  .6270,    .3817,
+     "Especial",  .9160,   .8179,  .6270,    .3817,
+       "Outros",  .9160,   .8179,  .6270,    .3817
+  )
+dfCV <- tribble(
+                   ~Tipo,  ~Luxo, ~Normal, ~Baixo, ~Popular,
+           "Apartamento",    2.5,     1.8,    1.5,      1.2,
+                  "Loja",    2.2,     1.6,    1.3,      1.1,
+                  "Sala",    2.2,     1.6,    1.3,      1.1,
+"Garagem Cond. Vertical",    1.5,     1.3,    1.1,      1.0
+)
+```
+
+```{r}
+FatoresBenfeitorias <- reactive({
+  # Fatores construções
+  if (isTRUE(input$BENF)) {
+
+    if (input$Tipologia != "Garagem Cond. Vertical") {
+      FPC <- pull(dfPC[dfPC$Tipo == input$Tipologia, input$PC])
+    } else {
+      FPC <- pull(dfPC[dfPC$Tipo == "Outros", input$PC])
+    }
+    FEC <- as.numeric(input$FEC)
+    if (input$Tipologia %in% c("Apartamento", "Loja", "Sala", "Garagem Cond. Vertical")) {
+      FCV <- as.numeric(dfCV[dfCV$Tipo == input$Tipologia, input$PC])
+    } else {
+      FCV <- 1
+    }
+    FatoresBenfeitoria <- tribble(
+      ~Fpc, ~Fec, ~Fcv,
+       FPC,  FEC,  FCV
+    )
+    FatoresBenfeitoria$Fconstrucoes <- with(FatoresBenfeitoria, Fpc*Fec*Fcv)
+  }
+  FatoresBenfeitoria
+})
+```
+
