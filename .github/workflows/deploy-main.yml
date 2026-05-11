@@ -11,17 +11,33 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, linux, shiny-labfsg]
-    environment: production
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'LabFSG-UFSC/shiny-server' }}
+    runs-on: [self-hosted, Linux, x64, shiny-labfsg]
     permissions:
       contents: read
+    env:
+      SHINY_OPERATOR: ${{ secrets.SHINY_OPERATOR }}
+      SHINY_MAINTAINER: ${{ secrets.SHINY_MAINTAINER }}
+      SHINY_JUMP_HOST: ${{ secrets.SHINY_JUMP_HOST }}
+      SHINY_VM_HOST: ${{ secrets.SHINY_VM_HOST }}
+      SHINY_BASE_DIR: /srv/shiny-server
+      SHINY_PUBLIC_BASE_URL: http://shiny.labfsg.intra
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Discover app directories changed in this push
+      - name: Validate required secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${SHINY_OPERATOR:?Missing secret SHINY_OPERATOR}"
+          : "${SHINY_MAINTAINER:?Missing secret SHINY_MAINTAINER}"
+          : "${SHINY_JUMP_HOST:?Missing secret SHINY_JUMP_HOST}"
+          : "${SHINY_VM_HOST:?Missing secret SHINY_VM_HOST}"
+
+      - name: Detect changed app directories
         id: changed
         shell: bash
         run: |
@@ -33,42 +49,23 @@ jobs:
             BEFORE="$(git rev-list --max-parents=0 HEAD | tail -n1)"
           fi
 
-          mapfile -t changed_dirs < <(
+          mapfile -t apps < <(
             git diff --name-only "$BEFORE" "$AFTER" \
-              | awk -F/ 'NF>=2 {print $1"/"$2} NF==1 {print $1}' \
+              | awk -F/ '/^apps\/[^\/]+\// {print $1"/"$2}' \
               | sort -u
           )
 
-          apps=()
-          for d in "${changed_dirs[@]}"; do
-            [[ -d "$d" ]] || continue
-            if [[ -f "$d/app.R" ]] || ([[ -f "$d/ui.R" ]] && [[ -f "$d/server.R" ]]); then
-              apps+=("$d")
-              continue
-            fi
-            if [[ "$d" == apps/* ]]; then
-              app_dir="$(echo "$d" | cut -d/ -f1-2)"
-              if [[ -d "$app_dir" ]] && ([[ -f "$app_dir/app.R" ]] || ([[ -f "$app_dir/ui.R" ]] && [[ -f "$app_dir/server.R" ]])); then
-                apps+=("$app_dir")
-              fi
-            fi
-          done
-
           if [[ ${#apps[@]} -eq 0 ]]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No app directories changed"
             exit 0
           fi
 
-          mapfile -t uniq_apps < <(printf '%s\n' "${apps[@]}" | sort -u)
           {
             echo "changed=true"
             echo "apps<<EOF"
-            printf '%s\n' "${uniq_apps[@]}"
+            printf '%s\n' "${apps[@]}"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
-
-          printf 'Apps selected for deploy:\n%s\n' "${uniq_apps[*]}"
 
       - name: Validate app structure
         if: steps.changed.outputs.changed == 'true'
@@ -80,60 +77,19 @@ jobs:
             if [[ -f "$app_dir/app.R" ]] || ([[ -f "$app_dir/ui.R" ]] && [[ -f "$app_dir/server.R" ]]); then
               echo "OK: $app_dir"
             else
-              echo "ERROR: $app_dir is missing app entrypoint" >&2
+              echo "ERROR: $app_dir sem app.R ou ui.R+server.R" >&2
               exit 1
             fi
           done <<< "${{ steps.changed.outputs.apps }}"
 
       - name: Deploy changed apps
         if: steps.changed.outputs.changed == 'true'
-        env:
-          SHINY_OPERATOR: ${{ vars.SHINY_OPERATOR }}
-          SHINY_MAINTAINER: ${{ vars.SHINY_MAINTAINER }}
-          SHINY_JUMP_HOST: ${{ vars.SHINY_JUMP_HOST }}
-          SHINY_VM_HOST: ${{ vars.SHINY_VM_HOST }}
-          SHINY_BASE_DIR: /srv/shiny-server
-          SHINY_PUBLIC_BASE_URL: http://shiny.labfsg.intra
         shell: bash
         run: |
           set -euo pipefail
-          : "${SHINY_OPERATOR:?Missing repo variable SHINY_OPERATOR}"
-          : "${SHINY_MAINTAINER:?Missing repo variable SHINY_MAINTAINER}"
-          : "${SHINY_JUMP_HOST:?Missing repo variable SHINY_JUMP_HOST}"
-          : "${SHINY_VM_HOST:?Missing repo variable SHINY_VM_HOST}"
-
-          deploy_one() {
-            local source_dir="$1"
-            local app_name="$2"
-            local stage_name="shiny-deploy-${app_name}-$(date '+%Y%m%d-%H%M%S')-$$"
-
-            scp -r -J "$SHINY_JUMP_HOST" "$source_dir" "${SHINY_OPERATOR}@${SHINY_VM_HOST}:${stage_name}"
-
-            ssh -tt -J "$SHINY_JUMP_HOST" "${SHINY_OPERATOR}@${SHINY_VM_HOST}" \
-              "STAGE_NAME='${stage_name}' APP_NAME='${app_name}' MAINTAINER='${SHINY_MAINTAINER}' BASE_DIR='${SHINY_BASE_DIR}' bash -s" <<'EOF_REMOTE'
-set -euo pipefail
-STAGE_PATH="$HOME/$STAGE_NAME"
-TARGET_PATH="$BASE_DIR/$APP_NAME"
-
-sudo usermod -aG shiny "$MAINTAINER"
-sudo chgrp shiny "$BASE_DIR"
-sudo chmod 2775 "$BASE_DIR"
-sudo mkdir -p "$TARGET_PATH"
-sudo find "$TARGET_PATH" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-sudo cp -a "$STAGE_PATH/." "$TARGET_PATH/"
-sudo chown -R "$MAINTAINER:shiny" "$TARGET_PATH"
-sudo find "$TARGET_PATH" -type d -exec chmod 2775 {} \;
-sudo find "$TARGET_PATH" -type f -exec chmod 664 {} \;
-rm -rf "$STAGE_PATH"
-
-curl -fsSI --max-time 15 "http://127.0.0.1:3838/$APP_NAME/" | sed -n '1,8p'
-EOF_REMOTE
-          }
-
           while IFS= read -r app_dir; do
             [[ -z "$app_dir" ]] && continue
-            app_name="$(basename "$app_dir" | tr '[:upper:]' '[:lower:]' | sed 's/ /-/g' | sed 's/[^a-z0-9._-]//g')"
-            echo "Deploying app '$app_name' from '$app_dir'"
-            deploy_one "$app_dir" "$app_name"
-            curl -fsSI --max-time 15 "${SHINY_PUBLIC_BASE_URL}/${app_name}/" | sed -n '1,8p'
+            app_name="$(basename "$app_dir")"
+            echo "Deploying $app_name from $app_dir"
+            bash scripts/shiny_app_deploy.sh "$app_dir" "$app_name"
           done <<< "${{ steps.changed.outputs.apps }}"
