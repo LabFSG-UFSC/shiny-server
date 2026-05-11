@@ -76,9 +76,9 @@ main() {
   local stage_name
   stage_name="shiny-deploy-${app_name}-$(date '+%Y%m%d-%H%M%S')-$$"
 
-  scp -r -J "$JUMP_HOST" "$abs_source_dir" "${OPERATOR}@${VM_HOST}:${stage_name}"
+  scp -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -r -J "$JUMP_HOST" "$abs_source_dir" "${OPERATOR}@${VM_HOST}:${stage_name}"
 
-  ssh -tt -J "$JUMP_HOST" "${OPERATOR}@${VM_HOST}" \
+  ssh -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -tt -J "$JUMP_HOST" "${OPERATOR}@${VM_HOST}" \
     "STAGE_NAME='${stage_name}' APP_NAME='${app_name}' MAINTAINER='${MAINTAINER}' BASE_DIR='${BASE_DIR}' bash -s" <<'EOF_REMOTE'
 set -euo pipefail
 STAGE_PATH="$HOME/$STAGE_NAME"
