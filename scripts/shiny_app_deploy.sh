@@ -3,8 +3,8 @@ set -euo pipefail
 
 JUMP_HOST="${SHINY_JUMP_HOST:-}"
 VM_HOST="${SHINY_VM_HOST:-192.168.122.149}"
-OPERATOR="${SHINY_OPERATOR:-droubi}"
-MAINTAINER="${SHINY_MAINTAINER:-kevinnovak}"
+OPERATOR="${SHINY_OPERATOR:-shinydeploy}"
+MAINTAINER="${SHINY_MAINTAINER:-shinydeploy}"
 BASE_DIR="${SHINY_BASE_DIR:-/srv/shiny-server}"
 PUBLIC_BASE_URL="${SHINY_PUBLIC_BASE_URL:-http://shiny.labfsg.intra}"
 
@@ -89,15 +89,7 @@ set -euo pipefail
 STAGE_PATH="$HOME/$STAGE_NAME"
 TARGET_PATH="$BASE_DIR/$APP_NAME"
 
-sudo usermod -aG shiny "$MAINTAINER"
-sudo chgrp shiny "$BASE_DIR"
-sudo chmod 2775 "$BASE_DIR"
-sudo mkdir -p "$TARGET_PATH"
-sudo find "$TARGET_PATH" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-sudo cp -a "$STAGE_PATH/." "$TARGET_PATH/"
-sudo chown -R "$MAINTAINER:shiny" "$TARGET_PATH"
-sudo find "$TARGET_PATH" -type d -exec chmod 2775 {} \;
-sudo find "$TARGET_PATH" -type f -exec chmod 664 {} \;
+sudo -n /usr/local/sbin/shiny_deploy_apply.sh "$STAGE_PATH" "$TARGET_PATH" "$MAINTAINER"
 rm -rf "$STAGE_PATH"
 
 curl -fsSI --max-time 15 "http://127.0.0.1:3838/$APP_NAME/" | sed -n '1,8p'
