@@ -83,7 +83,7 @@ main() {
 
   scp "${SSH_COMMON_OPTS[@]}" -r "$abs_source_dir" "${OPERATOR}@${VM_HOST}:${stage_name}"
 
-  ssh "${SSH_COMMON_OPTS[@]}" -tt "${OPERATOR}@${VM_HOST}" \
+  ssh "${SSH_COMMON_OPTS[@]}" "${OPERATOR}@${VM_HOST}" \
     "STAGE_NAME='${stage_name}' APP_NAME='${app_name}' MAINTAINER='${MAINTAINER}' BASE_DIR='${BASE_DIR}' bash -s" <<'EOF_REMOTE'
 set -euo pipefail
 STAGE_PATH="$HOME/$STAGE_NAME"
