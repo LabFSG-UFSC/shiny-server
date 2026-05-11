@@ -1,4 +1,4 @@
-# Como publicar utilizando apps desenvolvidos em R
+# Como publicar aplicações desenvolvidos em R utilizando Shiny
 # Tutorial - RStudio Desktop e RStudio Server
 
 Tutorial para estagiarios que desenvolvem apps Shiny em Windows e publicam via fluxo PR -> main -> deploy automatico.
