@@ -1,0 +1,14 @@
+name: Runner Smoke Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: [self-hosted, Linux, x64, shiny-labfsg]
+    steps:
+      - name: Echo
+        run: |
+          echo "runner ok"
+          uname -a
+          whoami
