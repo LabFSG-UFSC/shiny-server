@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-JUMP_HOST="${SHINY_JUMP_HOST:-admin1@150.162.76.36}"
+JUMP_HOST="${SHINY_JUMP_HOST:-}"
 VM_HOST="${SHINY_VM_HOST:-192.168.122.149}"
 OPERATOR="${SHINY_OPERATOR:-droubi}"
 MAINTAINER="${SHINY_MAINTAINER:-kevinnovak}"
@@ -76,9 +76,14 @@ main() {
   local stage_name
   stage_name="shiny-deploy-${app_name}-$(date '+%Y%m%d-%H%M%S')-$$"
 
-  scp -o ProxyJump="$JUMP_HOST" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -r "$abs_source_dir" "${OPERATOR}@${VM_HOST}:${stage_name}"
+  SSH_COMMON_OPTS=( -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null )
+  if [[ -n "$JUMP_HOST" && "$JUMP_HOST" != "none" ]]; then
+    SSH_COMMON_OPTS+=( -o ProxyJump="$JUMP_HOST" )
+  fi
 
-  ssh -o ProxyJump="$JUMP_HOST" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -tt "${OPERATOR}@${VM_HOST}" \
+  scp "${SSH_COMMON_OPTS[@]}" -r "$abs_source_dir" "${OPERATOR}@${VM_HOST}:${stage_name}"
+
+  ssh "${SSH_COMMON_OPTS[@]}" -tt "${OPERATOR}@${VM_HOST}" \
     "STAGE_NAME='${stage_name}' APP_NAME='${app_name}' MAINTAINER='${MAINTAINER}' BASE_DIR='${BASE_DIR}' bash -s" <<'EOF_REMOTE'
 set -euo pipefail
 STAGE_PATH="$HOME/$STAGE_NAME"
